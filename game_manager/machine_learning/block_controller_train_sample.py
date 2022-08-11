@@ -545,8 +545,8 @@ class Block_Controller(object):
             #if use double dqn, predicted by main model
             if self.double_dqn:
                 next_backboard  = self.getBoard(curr_backboard, curr_shape_class, action[1], action[0])
-                next２_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
-                next2_actions, next2_states = zip(*next２_steps.items())
+                next2_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
+                next2_actions, next2_states = zip(*next2_steps.items())
                 next2_states = torch.stack(next2_states)
                 if torch.cuda.is_available():
                     next2_states = next2_states.cuda()
@@ -559,8 +559,8 @@ class Block_Controller(object):
             #if use target net, predicted by target model
             elif self.target_net:
                 next_backboard  = self.getBoard(curr_backboard, curr_shape_class, action[1], action[0])
-                next２_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
-                next2_actions, next2_states = zip(*next２_steps.items())
+                next2_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
+                next2_actions, next2_states = zip(*next2_steps.items())
                 next2_states = torch.stack(next2_states)
                 if torch.cuda.is_available():
                     next2_states = next2_states.cuda()
@@ -573,8 +573,8 @@ class Block_Controller(object):
             #if not use target net,predicted by main model
             else:
                 next_backboard  = self.getBoard(curr_backboard, curr_shape_class, action[1], action[0])
-                next２_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
-                next2_actions, next2_states = zip(*next２_steps.items())
+                next2_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
+                next2_actions, next2_states = zip(*next2_steps.items())
                 next2_states = torch.stack(next2_states)
                 if torch.cuda.is_available():
                     next2_states = next2_states.cuda()
