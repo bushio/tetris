@@ -240,14 +240,12 @@ class Block_Controller(object):
 
                 state_batch, reward_batch, next_state_batch, done_batch = zip(*batch)
                 state_batch = torch.stack(tuple(state for state in state_batch))
-                reward_batch = torch.from_numpy(np.array(reward_batch, dtype=np.float32)[:, None])
+                #reward_batch = torch.from_numpy(np.array(reward_batch, dtype=np.float32)[:, None])
+                reward_batch = torch.stack(tuple(reward for reward in reward_batch))
                 next_state_batch = torch.stack(tuple(state for state in next_state_batch))
 
                 done_batch = torch.from_numpy(np.array(done_batch)[:, None])
-
-                #max_next_state_batch = torch.stack(tuple(state for state in max_next_state_batch))
                 q_values = self.model(state_batch)
-                
 
                 if self.target_net:
                     if self.epoch %self.target_copy_intarval==0 and self.epoch>0:
@@ -267,18 +265,19 @@ class Block_Controller(object):
                 
                 if self.multi_step_learning:
                     print("multi step learning update")
-                    y_batch = self.MSL.get_y_batch(done_batch,reward_batch, next_prediction_batch)              
+                    y_batch = self.MSL.get_y_batch(done_batch, reward_batch, next_prediction_batch)              
                 else:
-                    y_batch = torch.cat(
-                        tuple(reward if done[0] else reward + self.gamma * prediction for done ,reward, prediction in
-                            zip(done_batch,reward_batch, next_prediction_batch)))[:, None]
+
+                    y_batch = torch.stack(
+                        tuple(reward if done[0] else reward + self.gamma * prediction for done, reward, prediction in
+                            zip(done_batch, reward_batch, next_prediction_batch)))[:, None]
                 
                 self.optimizer.zero_grad()
                 if self.prioritized_replay:
-                    loss_weights = self.PER.update_priority(replay_batch_index,reward_batch,q_values,next_prediction_batch)
-                    #print(loss_weights *nn.functional.mse_loss(q_values, y_batch))
-                    loss = (loss_weights *self.criterion(q_values, y_batch)).mean()
-                    #loss = self.criterion(q_values, y_batch)
+                    loss_weights = self.PER.update_priority(replay_batch_index, reward_batch, q_values, next_prediction_batch)
+                    if torch.cuda.is_available():
+                        loss_weights = loss_weights.cuda()
+                    loss = (loss_weights * self.criterion(q_values, y_batch)).mean()
                     loss.backward()
                 else:
                     loss = self.criterion(q_values, y_batch)
@@ -538,7 +537,9 @@ class Block_Controller(object):
             next_state = next_states[index, :]
             action = next_actions[index]
             reward = self.reward_func(curr_backboard,action,curr_shape_class)
-            
+            reward =  torch.from_numpy(np.array(reward, dtype=np.float32)).unsqueeze(dim=0).clone()
+            if torch.cuda.is_available():
+                reward = reward.cuda()
             done = False #game over flag
             
             #======predict max_a Q(s_(t+1),a)======
