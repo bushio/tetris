@@ -64,7 +64,7 @@ class Block_Controller(object):
         shutil.copy2(yaml_file, self.output_dir)
         self.writer = SummaryWriter(self.output_dir+"/"+cfg["common"]["log_path"])
 
-        if self.mode=="predict" or self.mode=="predict_sample":
+        if self.mode=="predict" or self.mode=="predict_sample" or self.mode == "predict_sample2":
             self.log = self.output_dir+"/log_predict.txt"
             self.log_score = self.output_dir+"/score_predict.txt"
             self.log_reward = self.output_dir+"/reward_predict.txt"
@@ -104,7 +104,7 @@ class Block_Controller(object):
             self.reward_func = self.step_v2
             self.reward_weight = cfg["train"]["reward_weight"]
 
-        if self.mode=="predict" or self.mode=="predict_sample":
+        if self.mode=="predict" or self.mode=="predict_sample" or self.mode == "predict_sample2":
             if not predict_weight=="None":
                 if os.path.exists(predict_weight):
                     print("Load {}...".format(predict_weight))
@@ -267,10 +267,9 @@ class Block_Controller(object):
                     print("multi step learning update")
                     y_batch = self.MSL.get_y_batch(done_batch, reward_batch, next_prediction_batch)              
                 else:
-
                     y_batch = torch.stack(
                         tuple(reward if done[0] else reward + self.gamma * prediction for done, reward, prediction in
-                            zip(done_batch, reward_batch, next_prediction_batch)))[:, None]
+                            zip(done_batch, reward_batch, next_prediction_batch))) #[:, None]
                 
                 self.optimizer.zero_grad()
                 if self.prioritized_replay:
@@ -282,7 +281,6 @@ class Block_Controller(object):
                 else:
                     loss = self.criterion(q_values, y_batch)
                     loss.backward()
-                
                 self.optimizer.step()
                 
                 if self.scheduler!=None:
@@ -309,7 +307,7 @@ class Block_Controller(object):
                 self.writer.add_scalar('Train/Reward', self.epoch_reward, self.epoch - 1)   
                 self.writer.add_scalar('Train/block', self.tetrominoes, self.epoch - 1)  
                 self.writer.add_scalar('Train/clear lines', self.cleared_lines, self.epoch - 1) 
-                    
+
             if self.epoch > self.num_epochs:
                 with open(self.log,"a") as f:
                     print("finish..", file=f)
@@ -608,10 +606,12 @@ class Block_Controller(object):
             if self.tetrominoes > self.max_tetrominoes:
                 nextMove["option"]["force_reset_field"] = True
             self.state = next_state
-        elif self.mode == "predict" or self.mode == "predict_sample":
+        elif self.mode == "predict" or self.mode == "predict_sample" or self.mode == "predict_sample2":
             self.model.eval()
             next_actions, next_states = zip(*next_steps.items())
             next_states = torch.stack(next_states)
+            if torch.cuda.is_available():
+                next_states = next_states.cuda()
             predictions = self.model(next_states)[:, 0]
             index = torch.argmax(predictions).item()
             action = next_actions[index]
