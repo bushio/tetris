@@ -16,6 +16,12 @@ import shutil
 import glob 
 import numpy as np
 import yaml
+
+def get_state_with_block_id_weight(state, id):
+    id_weight = 1.0/id
+    return state * id_weight
+
+
 class Block_Controller(object):
 
     # init parameter
@@ -426,6 +432,7 @@ class Block_Controller(object):
                 # get board data, as if dropdown block
                 board = self.getBoard(curr_backboard, CurrentShape_class, direction0, x0)
                 reshape_backboard = self.get_reshape_backboard(board)
+                reshape_backboard = get_state_with_block_id_weight(reshape_backboard, piece_id)
                 reshape_backboard = torch.from_numpy(reshape_backboard[np.newaxis,:,:]).float()
                 states[(x0, direction0)] = reshape_backboard
         return states
@@ -510,8 +517,6 @@ class Block_Controller(object):
         curr_piece_id =GameStatus["block_info"]["currentShape"]["index"]
         next_piece_id =GameStatus["block_info"]["nextShape"]["index"]
         reshape_backboard = self.get_reshape_backboard(curr_backboard)
-               
-        #self.state = reshape_backboard
 
         next_steps =self.get_next_func(curr_backboard,curr_piece_id,curr_shape_class)
         
@@ -594,12 +599,10 @@ class Block_Controller(object):
                 
             
             #=======================================
-            #self.replay_memory.append([next_state, reward, next2_state,done])
             self.episode_memory.append([next_state, reward, next2_state,done])
             if self.prioritized_replay:
                 self.PER.store()
             
-            #self.replay_memory.append([self.state, reward, next_state,done])
             nextMove["strategy"]["direction"] = action[1]
             nextMove["strategy"]["x"] = action[0]
             nextMove["strategy"]["y_operation"] = 1
