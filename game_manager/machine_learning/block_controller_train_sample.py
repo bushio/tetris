@@ -462,7 +462,12 @@ class Block_Controller(object):
         max_height = self.get_max_height(board)
         hole_num = self.get_holes(board)
         lines_cleared, board = self.check_cleared_rows(board)
-        reward = self.reward_list[lines_cleared] 
+
+        if lines_cleared==1:
+            reward = self.reward_list[lines_cleared] * ((self.num_epochs - self.epoch + 1.0 ) / self.num_epochs)
+        else:
+            reward = self.reward_list[lines_cleared]
+
         reward -= self.reward_weight[0] *bampiness 
         reward -= self.reward_weight[1] * max(0,max_height)
         reward -= self.reward_weight[2] * hole_num
