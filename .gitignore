@@ -5,3 +5,6 @@ tmp.log
 **.DS_Store
 /result.json
 outputs/*
+.venv/*
+
+game_manager/machine_learning/model/tutorial/.ipynb_checkpoints/*
