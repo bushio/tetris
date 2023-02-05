@@ -8,3 +8,4 @@ tmp.log
 /result.json
 outputs/*
 docker/*
+.venv/*
