@@ -356,8 +356,8 @@ class Block_Controller(object):
                     print("Finetuning mode\nLoad {}...".format(self.ft_weight), file=f)
                 
         ## GPU 使用できるときは使う
-#        if torch.cuda.is_available():
-#            self.model.cuda()
+        if torch.cuda.is_available():
+            self.model.cuda()
         
         #=====Set hyper parameter=====
         #  学習バッチサイズ(学習の分割単位, データサイズを分割している)
@@ -545,7 +545,8 @@ class Block_Controller(object):
                 # (episode memory の並び)
                 state_batch, reward_batch, next_state_batch, done_batch = zip(*batch)
                 state_batch = torch.stack(tuple(state for state in state_batch))
-                reward_batch = torch.from_numpy(np.array(reward_batch, dtype=np.float32)[:, None])
+                #reward_batch = torch.from_numpy(np.array(reward_batch, dtype=np.float32)[:, None])
+                reward_batch = torch.stack(tuple(reward for reward in reward_batch))
                 next_state_batch = torch.stack(tuple(state for state in next_state_batch))
 
                 done_batch = torch.from_numpy(np.array(done_batch)[:, None])
@@ -613,6 +614,10 @@ class Block_Controller(object):
                     # 次の状態のbatch の Q 値
                     # 次の次の状態のbatch の Q 値 (Target model 有効の場合 Target model 換算)
                     loss_weights = self.PER.update_priority(replay_batch_index,reward_batch,q_values,next_prediction_batch)
+
+                    if torch.cuda.is_available():
+                        loss_weights = loss_weights.cuda()
+
                     #print(loss_weights *nn.functional.mse_loss(q_values, y_batch))
                     # 誤差関数と重みづけ計算 (q_values が現状 モデル結果, y_batch が比較対象[Target net])
                     loss = (loss_weights *self.criterion(q_values, y_batch)).mean()
@@ -729,6 +734,8 @@ class Block_Controller(object):
         # 前のターンで Drop をスキップしていたか？ (-1: していない, それ以外: していた)
         # third_y, forth_direction, fifth_x
         self.skip_drop = [-1, -1, -1]
+
+        torch.cuda.empty_cache()
 
     ####################################
     #削除されるLineを数える
@@ -1532,8 +1539,8 @@ class Block_Controller(object):
                 next_states = torch.stack(next_states)
 
                 ## GPU 使用できるときは使う
-#                if torch.cuda.is_available():
-#                    next_states = next_states.cuda()
+                if torch.cuda.is_available():
+                    next_states = next_states.cuda()
             
                 ##########################
                 # モデルの学習実施
@@ -1569,7 +1576,11 @@ class Block_Controller(object):
             action = next_actions[index]
             # step, step_v2 により報酬計算
             reward = self.reward_func(curr_backboard, action, curr_shape_class)
-            
+
+            reward =  torch.from_numpy(np.array(reward, dtype=np.float32)).unsqueeze(dim=0).clone()
+            if torch.cuda.is_available():
+                reward = reward.cuda()
+
             done = False #game over flag
             
             #####################################
@@ -1586,8 +1597,8 @@ class Block_Controller(object):
                 # next_states のテンソルを連結
                 next2_states = torch.stack(next2_states)
                 ## GPU 使用できるときは使う
-#                if torch.cuda.is_available():
-#                    next2_states = next2_states.cuda()
+                if torch.cuda.is_available():
+                    next2_states = next2_states.cuda()
                 ##########################
                 # モデルの学習実施
                 ##########################
@@ -1614,8 +1625,8 @@ class Block_Controller(object):
                 # next_states のテンソルを連結
                 next2_states = torch.stack(next2_states)
                 ## GPU 使用できるときは使う
-#                if torch.cuda.is_available():
-#                    next2_states = next2_states.cuda()
+                if torch.cuda.is_available():
+                    next2_states = next2_states.cuda()
                 ##########################
                 # モデルの学習実施
                 ##########################
@@ -1641,8 +1652,8 @@ class Block_Controller(object):
                 next2_states = torch.stack(next2_states)
 
                 ## GPU 使用できるときは使う
-#                if torch.cuda.is_available():
-#                    next2_states = next2_states.cuda()
+                if torch.cuda.is_available():
+                    next2_states = next2_states.cuda()
                 ##########################
                 # モデルの学習実施
                 ##########################
@@ -1867,8 +1878,8 @@ class Block_Controller(object):
         # 学習モードの場合
         if is_train:
             ## GPU 使用できるときは使う
-#            if torch.cuda.is_available():
-#                next_states = next_states.cuda()
+            if torch.cuda.is_available():
+                next_states = next_states.cuda()
             # テンソルの勾配の計算を不可とする
             with torch.no_grad():
                 # 順伝搬し Q 値を取得 (model の __call__ ≒ forward)
