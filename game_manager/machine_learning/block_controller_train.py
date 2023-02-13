@@ -2047,3 +2047,13 @@ class Block_Controller(object):
             _board[(_y + center_y) * self.board_data_width + _x] = Shape_class.shape
         return _board
 BLOCK_CONTROLLER_TRAIN = Block_Controller()
+
+BLOCK_MAX_RANGE = {
+    1: {1: [0, 9], 2: [2, 8]}, # I mino
+    2: {1: [0, 8], 2: [1, 8], 3: [1, 9], 4: [1, 8 ]}, # L mino
+    3: {1: [1, 9], 2: [1, 8], 3: [0, 8], 4: [1, 8]}, # J mino
+    4: {1: [0, 8], 2: [1, 8], 3: [1, 9], 4: [1, 8]}, # T mino
+    5: {1: [0, 8]}, # O mino
+    6: {1: [1, 8], 2: [0, 8]}, # S mino
+    7: {1: [1, 8], 2: [0, 8]}, # Z mino
+}

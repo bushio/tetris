@@ -104,10 +104,9 @@ class PRIORITIZED_EXPERIENCE_REPLAY():
             if index in memo:
                 continue
             # index 新規なら memo に追加
-            memo.append(index )
+            memo.append(index)
             # 勾配計算なしで誤差計算 (割引率γおりこみ)
             with torch.no_grad():
-                #print(self.gamma *next_q_batch[i] - q_batch[i])
                 TD_error = float(reward_batch[i] + self.gamma *next_q_batch[i] - q_batch[i])
             self.replay_priority_queue[index] = abs(TD_error)
         # Numpy にもどす

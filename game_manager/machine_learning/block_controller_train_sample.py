@@ -90,19 +90,18 @@ class Block_Controller(object):
         #=====load Deep Q Network=====
         self.state_dim = cfg["state"]["dim"]
         print("model name: %s"%(cfg["model"]["name"]))
-        if cfg["model"]["name"]=="MLP":
-            from machine_learning.model.deepqnet import MLP
-            self.model = MLP(self.state_dim)
-            self.initial_state = torch.FloatTensor([0 for i in range(self.state_dim)])
-            self.get_next_func = self.get_next_states
-            self.reward_func = self.step
-        elif cfg["model"]["name"]=="DQN":
-            from machine_learning.model.deepqnet import DeepQNetwork
-            self.model = DeepQNetwork()
-            self.initial_state = torch.FloatTensor([[[0 for i in range(10)] for j in range(22)]])
+
+        if cfg["model"]["name"]=="DQN":
+            from machine_learning.model.deepqnet import DeepQNetwork2
+            self.class_num = 40
+            self.model = DeepQNetwork2()
+            self.initial_state = np.array([[0 for i in range(10)] for j in range(22)])
             self.get_next_func = self.get_next_states_v2
             self.reward_func = self.step_v2
             self.reward_weight = cfg["train"]["reward_weight"]
+        else:
+            print("Model %s is not supported".format(cfg["model"]["name"]))
+            exit()
 
         if self.mode=="predict" or self.mode=="predict_sample":
             if not predict_weight=="None":
@@ -130,7 +129,7 @@ class Block_Controller(object):
         #=====Set hyper parameter=====
         self.batch_size = cfg["train"]["batch_size"]
         self.lr = cfg["train"]["lr"]
-        if not isinstance(self.lr,float):
+        if not isinstance(self.lr, float):
             self.lr = float(self.lr)
 
         self.replay_memory_size = cfg["train"]["replay_memory_size"]
@@ -191,6 +190,7 @@ class Block_Controller(object):
             print("set target network...")
             self.target_model = copy.deepcopy(self.model)
             self.target_copy_intarval = cfg["train"]["target_copy_intarval"]
+            
         #=====Prioritized Experience Replay=====
         self.prioritized_replay = cfg["train"]["prioritized_replay"]
         if self.prioritized_replay:
@@ -238,18 +238,24 @@ class Block_Controller(object):
                     batch = sample(self.replay_memory, min(len(self.replay_memory),self.batch_size))
                     
 
-                state_batch, reward_batch, next_state_batch, done_batch = zip(*batch)
-                state_batch = torch.stack(tuple(state for state in state_batch))
+                state_batch, reward_batch, next_state_batch, curr_piece_id_batch, next_piece_id_batch, done_batch = zip(*batch)
+
+                state_batch = torch.stack(state_batch)
+                
                 reward_batch = torch.from_numpy(np.array(reward_batch, dtype=np.float32)[:, None])
-                next_state_batch = torch.stack(tuple(state for state in next_state_batch))
+                next_state_batch = torch.stack(next_state_batch)
+                
+                curr_piece_id_batch = torch.from_numpy(np.array(curr_piece_id_batch, dtype=np.float32)[:, None])
+
+                next_piece_id_batch = torch.from_numpy(np.array(next_piece_id_batch, dtype=np.float32)[:, None])
 
                 done_batch = torch.from_numpy(np.array(done_batch)[:, None])
 
                 #max_next_state_batch = torch.stack(tuple(state for state in max_next_state_batch))
                 q_values = self.model(state_batch)
+                q_values_max, _ = torch.max(q_values, dim=1)
                 
-
-                if self.target_net:
+                if self.double_dqn:
                     if self.epoch %self.target_copy_intarval==0 and self.epoch>0:
                         print("target_net update...")
                         self.target_model = torch.load(self.best_weight)
@@ -257,31 +263,49 @@ class Block_Controller(object):
                     self.target_model.eval()
                     #======predict Q(S_t+1 max_a Q(s_(t+1),a))======
                     with torch.no_grad():
-                        next_prediction_batch = self.target_model(next_state_batch)
+                        target_q_values = self.target_model(next_state_batch)
+                        next_q_argmax = torch.argmax(target_q_values, dim=1)
+                        next_q_argmax_onehot = torch.nn.functional.one_hot(next_q_argmax, num_classes=self.class_num)
+                    next_q_values = torch.abs(q_values*next_q_argmax_onehot)
+                    next_q_values_max, _  = torch.max(next_q_values, dim=1)
                 else:
+                    if self.epoch %self.target_copy_intarval==0 and self.epoch>0:
+                        print("target_net update...")
+                        self.target_model = torch.load(self.best_weight)
                     self.model.eval()
                     with torch.no_grad():
-                        next_prediction_batch = self.model(next_state_batch)
+                        target_q_values = self.model(next_state_batch)
+                        next_q_argmax = torch.argmax(target_q_values, dim=1)
+                        next_q_argmax_onehot = torch.nn.functional.one_hot(next_q_argmax, num_classes=self.class_num)
+                    
+                    next_q_values = torch.abs(q_values*next_q_argmax_onehot)
+                    next_q_values_max, _ = torch.max(next_q_values, dim=1)
+
 
                 self.model.train()
                 
+                
                 if self.multi_step_learning:
                     print("multi step learning update")
-                    y_batch = self.MSL.get_y_batch(done_batch,reward_batch, next_prediction_batch)              
+                    y_batch = self.MSL.get_y_batch(done_batch,reward_batch, next_q_values_max)              
                 else:
+                    
                     y_batch = torch.cat(
                         tuple(reward if done[0] else reward + self.gamma * prediction for done ,reward, prediction in
-                            zip(done_batch,reward_batch, next_prediction_batch)))[:, None]
+                            zip(done_batch,reward_batch, next_q_values_max)))[:, None]
                 
                 self.optimizer.zero_grad()
                 if self.prioritized_replay:
-                    loss_weights = self.PER.update_priority(replay_batch_index,reward_batch,q_values,next_prediction_batch)
+                    
+                    loss_weights = self.PER.update_priority(replay_batch_index, reward_batch, q_values_max, next_q_values_max)
                     #print(loss_weights *nn.functional.mse_loss(q_values, y_batch))
-                    loss = (loss_weights *self.criterion(q_values, y_batch)).mean()
-                    #loss = self.criterion(q_values, y_batch)
+                    #loss = (loss_weights *self.criterion(q_values, y_batch)).mean()
+
+                    loss = self.criterion(q_values_max, y_batch)
                     loss.backward()
+                    
                 else:
-                    loss = self.criterion(q_values, y_batch)
+                    loss = self.criterion(q_values_max, y_batch)
                     loss.backward()
                 
                 self.optimizer.step()
@@ -509,93 +533,25 @@ class Block_Controller(object):
         self.ShapeNone_index = GameStatus["debug_info"]["shape_info"]["shapeNone"]["index"]
         curr_piece_id =GameStatus["block_info"]["currentShape"]["index"]
         next_piece_id =GameStatus["block_info"]["nextShape"]["index"]
-        reshape_backboard = self.get_reshape_backboard(curr_backboard)
-               
-        #self.state = reshape_backboard
-
-        next_steps =self.get_next_func(curr_backboard,curr_piece_id,curr_shape_class)
         
+        state = self.get_reshape_backboard(curr_backboard)
+        state = self.convert_state_to_multi_channel(state, curr_piece_id)
+
         if self.mode=="train" or self.mode=="train_sample" or self.mode=="train_sample2":
-            # init parameter
-            epsilon = self.final_epsilon + (max(self.num_decay_epochs - self.epoch, 0) * (
-                    self.initial_epsilon - self.final_epsilon) / self.num_decay_epochs)
-            u = random()
-            random_action = u <= epsilon
-            next_actions, next_states = zip(*next_steps.items())
-            next_states = torch.stack(next_states)
-                       
-#            if torch.cuda.is_available():
-#                next_states = next_states.cuda()
-        
-            self.model.train()
-            with torch.no_grad():
-                predictions = self.model(next_states)[:, 0]
-
-            if random_action:
-                index = randint(0, len(next_steps) - 1)
-            else:
-                index = torch.argmax(predictions).item()
-            next_state = next_states[index, :]
-            action = next_actions[index]
-            reward = self.reward_func(curr_backboard,action,curr_shape_class)
-            
+            next_state, reward, action = self.get_reward_by_model(self.model, 
+                                state, 
+                                curr_piece_id, 
+                                curr_shape_class)
+            next_state = self.convert_state_to_multi_channel(next_state, next_piece_id)
             done = False #game over flag
-            
-            #======predict max_a Q(s_(t+1),a)======
-            #if use double dqn, predicted by main model
-            if self.double_dqn:
-                next_backboard  = self.getBoard(curr_backboard, curr_shape_class, action[1], action[0])
-                next２_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
-                next2_actions, next2_states = zip(*next２_steps.items())
-                next2_states = torch.stack(next2_states)
-#                if torch.cuda.is_available():
-#                    next2_states = next2_states.cuda()
-                self.model.train()
-                with torch.no_grad():
-                    next_predictions = self.model(next2_states)[:, 0]
-                next_index = torch.argmax(next_predictions).item()
-                next2_state = next2_states[next_index, :]
-                
-            #if use target net, predicted by target model
-            elif self.target_net:
-                next_backboard  = self.getBoard(curr_backboard, curr_shape_class, action[1], action[0])
-                next２_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
-                next2_actions, next2_states = zip(*next２_steps.items())
-                next2_states = torch.stack(next2_states)
-#                if torch.cuda.is_available():
-#                    next2_states = next2_states.cuda()
-                self.target_model.train()
-                with torch.no_grad():
-                    next_predictions = self.target_model(next2_states)[:, 0]
-                next_index = torch.argmax(next_predictions).item()
-                next2_state = next2_states[next_index, :]
-                
-            #if not use target net,predicted by main model
-            else:
-                next_backboard  = self.getBoard(curr_backboard, curr_shape_class, action[1], action[0])
-                next２_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
-                next2_actions, next2_states = zip(*next２_steps.items())
-                next2_states = torch.stack(next2_states)
-#                if torch.cuda.is_available():
-#                    next2_states = next2_states.cuda()
-                self.model.train()
-                with torch.no_grad():
-                    next_predictions = self.model(next2_states)[:, 0]
-                                
-                epsilon = self.final_epsilon + (max(self.num_decay_epochs - self.epoch, 0) * (
-                self.initial_epsilon - self.final_epsilon) / self.num_decay_epochs)
-                u = random()
-                random_action = u <= epsilon
-                if random_action:
-                    next_index = randint(0, len(next2_steps) - 1)
-                else:
-                    next_index = torch.argmax(next_predictions).item()
-                next2_state = next2_states[next_index, :]
-                
-            
+
             #=======================================
             #self.replay_memory.append([next_state, reward, next2_state,done])
-            self.episode_memory.append([next_state, reward, next2_state,done])
+            state_tensor = torch.from_numpy(state).float()
+            next_state_tensor = torch.from_numpy(next_state).float()
+            
+            self.episode_memory.append([state_tensor, reward, next_state_tensor, 
+                                            curr_piece_id, next_piece_id, done])
             if self.prioritized_replay:
                 self.PER.store()
             
@@ -607,18 +563,97 @@ class Block_Controller(object):
             if self.tetrominoes > self.max_tetrominoes:
                 nextMove["option"]["force_reset_field"] = True
             self.state = next_state
+            
+
         elif self.mode == "predict" or self.mode == "predict_sample":
             self.model.eval()
-            next_actions, next_states = zip(*next_steps.items())
-            next_states = torch.stack(next_states)
-            predictions = self.model(next_states)[:, 0]
+
+            with torch.no_grad():
+                state = torch.from_numpy(state[np.newaxis,:,:]).float()
+                predictions = self.model(state)[0]
+            
             index = torch.argmax(predictions).item()
-            action = next_actions[index]
+            x0 = index // 4
+            direction0 = (index % 4)
+            
+            # Clip x0 to max direction
+            if curr_piece_id == 5:  
+                direction0 = 0
+            elif curr_piece_id == 1 or curr_piece_id == 6 or curr_piece_id == 7:
+                direction0 = (direction0 % 2)
+            else:
+                direction0 = direction0
+
+            # Clip x0 to max range
+            block_control_range = BLOCK_MAX_RANGE[curr_piece_id][direction0] 
+            x0 = min(max(x0, block_control_range[0]), block_control_range[1])
+            action = (x0, direction0)
+
             nextMove["strategy"]["direction"] = action[1]
             nextMove["strategy"]["x"] = action[0]
             nextMove["strategy"]["y_operation"] = 1
             nextMove["strategy"]["y_moveblocknum"] = 1
         return nextMove
+ 
+    def get_reward_by_model(self, model, state, curr_piece_id, curr_shape_class, random_flag=True):
+        
+        if random_flag:
+            epsilon = self.final_epsilon + (max(self.num_decay_epochs - self.epoch, 0) * (
+                    self.initial_epsilon - self.final_epsilon) / self.num_decay_epochs)
+            u = random()
+            random_action = u <= epsilon
+        else:
+            random_action =  False  
+
+        model.train()
+        with torch.no_grad():
+            state = torch.from_numpy(state[np.newaxis,:,:]).float()
+            predictions = model(state)[0]
+        if random_action:
+            index = randint(0, 39)
+        else:
+            index = torch.argmax(predictions).item()
+        x0 = index // 4
+        direction0 = (index % 4)
+        
+        # Clip x0 to max direction
+        if curr_piece_id == 5:  
+            direction0 = 0
+        elif curr_piece_id == 1 or curr_piece_id == 6 or curr_piece_id == 7:
+            direction0 = (direction0 % 2)
+        else:
+            direction0 = direction0
+
+        # Clip x0 to max range
+        block_control_range = BLOCK_MAX_RANGE[curr_piece_id][direction0] 
+        
+        x0 = min(max(x0, block_control_range[0]), block_control_range[1])
+        
+        action = (x0, direction0)
+
+        x0Min, x0Max = self.getSearchXRange(curr_shape_class, direction0)
+        #print(x0, curr_piece_id, direction0)
+        #print(block_control_range)
+        #print(x0Min, x0Max)
+        #lprint(state[0][curr_piece_id - 1])
+        next_backboard = self.getBoard(state[0][curr_piece_id - 1].flatten(), curr_shape_class, direction0, x0)
+        
+        next_state = self.get_reshape_backboard(next_backboard)
+        
+        reward = self.reward_func(state[0][curr_piece_id - 1].flatten(), action, curr_shape_class)
+
+        return next_state, reward, action
+
+    def convert_state_to_multi_channel(self, state, piece_id, block_pattern=7):
+        output_state = []
+
+        for i in range(block_pattern):
+            if (i + 1) == piece_id:
+                output_state.append(state)
+            else:
+                output_state.append(self.initial_state)
+
+        return np.array(output_state)
     
     def getSearchXRange(self, Shape_class, direction):
         #
@@ -674,4 +709,29 @@ class Block_Controller(object):
         for _x, _y in coordArray:
             _board[(_y + dy) * self.board_data_width + _x] = Shape_class.shape
         return _board
+    
+    
+    def get_block_list(self, index):
+        block_list = np.array([
+            [[0, 0, 0, 0],[0, 0, 0, 0],[0, 0, 0, 0]],
+            [[0, 0, 0, 0],[1, 1, 1, 1],[0, 0, 0, 0]], # I mino
+            [[1, 0, 0, 0],[1, 0, 0, 0],[1, 1, 0, 0]], # L mino
+            [[0, 0, 0, 1],[0, 0, 0, 1],[0, 0, 1, 1]], # J mino
+            [[0, 1, 0, 0],[0, 0, 0, 0],[1, 1, 1, 0]], # T mino
+            [[0, 0, 0, 0],[0, 1, 1, 0],[0, 1, 1, 0]], # O mino
+            [[0, 0, 0, 0],[0, 0, 1, 1],[0, 1, 1, 0]], # S mino
+            [[0, 0, 0, 0],[1, 1, 0, 0],[0, 1, 1, 0]], # Z mino
+        ])
+        return block_list[index].flatten()
+
+BLOCK_MAX_RANGE = {
+    1: {0: [0, 9], 1: [2, 8]}, # I mino
+    2: {0: [0, 8], 1: [1, 8], 2: [1, 9], 3: [1, 8 ]}, # L mino
+    3: {0: [1, 9], 1: [1, 8], 2: [0, 8], 3: [1, 8]}, # J mino
+    4: {0: [0, 8], 1: [1, 8], 2: [1, 9], 3: [1, 8]}, # T mino
+    5: {0: [0, 8]}, # O mino
+    6: {0: [1, 8], 1: [0, 8]}, # S mino
+    7: {0: [1, 8], 1: [0, 8]}, # Z mino
+}
+
 BLOCK_CONTROLLER_TRAIN_SAMPLE = Block_Controller()
