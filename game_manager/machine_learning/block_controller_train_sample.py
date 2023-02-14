@@ -123,8 +123,8 @@ class Block_Controller(object):
                     print("Finetuning mode\nLoad {}...".format(self.ft_weight), file=f)
                 
             
-#        if torch.cuda.is_available():
-#            self.model.cuda()
+        if torch.cuda.is_available():
+            self.model.cuda()
         
         #=====Set hyper parameter=====
         self.batch_size = cfg["train"]["batch_size"]
@@ -190,6 +190,9 @@ class Block_Controller(object):
             print("set target network...")
             self.target_model = copy.deepcopy(self.model)
             self.target_copy_intarval = cfg["train"]["target_copy_intarval"]
+
+            if torch.cuda.is_available():
+                self.target_model.cuda()
             
         #=====Prioritized Experience Replay=====
         self.prioritized_replay = cfg["train"]["prioritized_replay"]
@@ -240,10 +243,17 @@ class Block_Controller(object):
 
                 state_batch, reward_batch, next_state_batch, curr_piece_id_batch, next_piece_id_batch, done_batch = zip(*batch)
 
-                state_batch = torch.stack(state_batch)
-                
-                reward_batch = torch.from_numpy(np.array(reward_batch, dtype=np.float32)[:, None])
-                next_state_batch = torch.stack(next_state_batch)
+
+                if torch.cuda.is_available():
+
+                    state_batch = torch.stack(tuple(state.cuda() for state in state_batch))
+                    reward_batch = torch.stack(tuple(reward for reward in reward_batch))
+                    next_state_batch = torch.stack(tuple(next_state.cuda() for next_state in next_state_batch))
+                else:
+                    state_batch = torch.stack(state_batch)
+                    reward_batch = torch.from_numpy(np.array(reward_batch, dtype=np.float32)[:, None])
+                    next_state_batch = torch.stack(next_state_batch)
+
                 
                 curr_piece_id_batch = torch.from_numpy(np.array(curr_piece_id_batch, dtype=np.float32)[:, None])
 
@@ -258,8 +268,8 @@ class Block_Controller(object):
                 if self.double_dqn:
                     if self.epoch %self.target_copy_intarval==0 and self.epoch>0:
                         print("target_net update...")
-                        self.target_model = torch.load(self.best_weight)
-                        #self.target_model = copy.copy(self.model)
+                        #self.target_model = torch.load(self.best_weight)
+                        self.target_model = copy.copy(self.model)
                     self.target_model.eval()
                     #======predict Q(S_t+1 max_a Q(s_(t+1),a))======
                     with torch.no_grad():
@@ -298,10 +308,12 @@ class Block_Controller(object):
                 if self.prioritized_replay:
                     
                     loss_weights = self.PER.update_priority(replay_batch_index, reward_batch, q_values_max, next_q_values_max)
+                    if torch.cuda.is_available():
+                        loss_weights = loss_weights.cuda()
                     #print(loss_weights *nn.functional.mse_loss(q_values, y_batch))
-                    #loss = (loss_weights *self.criterion(q_values, y_batch)).mean()
+                    loss = (loss_weights *self.criterion(q_values_max, y_batch)).mean()
 
-                    loss = self.criterion(q_values_max, y_batch)
+                    #loss = self.criterion(q_values_max, y_batch)
                     loss.backward()
                     
                 else:
@@ -374,7 +386,9 @@ class Block_Controller(object):
         self.cleared_lines = 0
         self.epoch_reward = 0
         self.tetrominoes = 0
-            
+        
+        torch.cuda.empty_cache()
+
     #削除される列を数える
     def check_cleared_rows(self,board):
         board_new = np.copy(board)
@@ -549,7 +563,12 @@ class Block_Controller(object):
             #self.replay_memory.append([next_state, reward, next2_state,done])
             state_tensor = torch.from_numpy(state).float()
             next_state_tensor = torch.from_numpy(next_state).float()
-            
+
+            if torch.cuda.is_available():
+                next_state_tensor = next_state_tensor.cuda()
+                reward =  torch.from_numpy(np.array(reward, dtype=np.float32)).unsqueeze(dim=0).clone()
+                reward = reward.cuda()            
+    
             self.episode_memory.append([state_tensor, reward, next_state_tensor, 
                                             curr_piece_id, next_piece_id, done])
             if self.prioritized_replay:
@@ -605,10 +624,16 @@ class Block_Controller(object):
         else:
             random_action =  False  
 
+        state = torch.from_numpy(state[np.newaxis,:,:]).float()
+        if torch.cuda.is_available():
+            state_ = state.cuda()
+        else:
+            state_ = state
+        
         model.train()
         with torch.no_grad():
-            state = torch.from_numpy(state[np.newaxis,:,:]).float()
-            predictions = model(state)[0]
+            
+            predictions = model(state_)[0]
         if random_action:
             index = randint(0, 39)
         else:
@@ -637,7 +662,8 @@ class Block_Controller(object):
         #print(x0Min, x0Max)
         #lprint(state[0][curr_piece_id - 1])
         next_backboard = self.getBoard(state[0][curr_piece_id - 1].flatten(), curr_shape_class, direction0, x0)
-        
+
+
         next_state = self.get_reshape_backboard(next_backboard)
         
         reward = self.reward_func(state[0][curr_piece_id - 1].flatten(), action, curr_shape_class)

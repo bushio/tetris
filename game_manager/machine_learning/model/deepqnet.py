@@ -68,18 +68,18 @@ class DeepQNetwork2(nn.Module):
     def __init__(self):
         super(DeepQNetwork2, self).__init__()
         self.conv1 = nn.Sequential(
-                nn.Conv2d(7, 112, groups=7, kernel_size=4, stride=2, padding=1,
+                nn.Conv2d(7, 224, groups=7, kernel_size=4, stride=2, padding=1,
                 padding_mode='zeros',bias=False),
                 nn.ReLU())
         
         self.conv2 = nn.Sequential(
                 nn.ConstantPad2d((2,2,2,2),0),
-                nn.Conv2d(112, 112, groups=7, kernel_size=5, stride=1,padding=0,
+                nn.Conv2d(224, 224, groups=7, kernel_size=5, stride=1,padding=0,
                 bias=False),
                 nn.ReLU())
         
         self.conv3 = nn.Sequential(
-                nn.Conv2d(112, 64, kernel_size=5, stride=2, 
+                nn.Conv2d(224, 64, kernel_size=5, stride=2, 
                 bias=False, padding_mode='zeros'),
                 nn.ReLU())
         
