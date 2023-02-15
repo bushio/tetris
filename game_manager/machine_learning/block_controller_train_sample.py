@@ -92,9 +92,9 @@ class Block_Controller(object):
         print("model name: %s"%(cfg["model"]["name"]))
 
         if cfg["model"]["name"]=="DQN":
-            from machine_learning.model.deepqnet import DeepQNetwork2
+            from machine_learning.model.deepqnet import DeepQNetwork3
             self.class_num = 40
-            self.model = DeepQNetwork2()
+            self.model = DeepQNetwork3()
             self.initial_state = np.array([[0 for i in range(10)] for j in range(22)])
             self.get_next_func = self.get_next_states_v2
             self.reward_func = self.step_v2
@@ -252,8 +252,14 @@ class Block_Controller(object):
                 done_batch = torch.from_numpy(np.array(done_batch)[:, None])
 
                 #max_next_state_batch = torch.stack(tuple(state for state in max_next_state_batch))
-                q_values = self.model(state_batch)
-                q_values_max, _ = torch.max(q_values, dim=1)
+                predictions  = self.model(state_batch)
+                
+                q_values_direction0_max, _ = torch.max(predictions[0], dim=1)
+                q_values_x0_max, _ = torch.max(predictions[0], dim=1)
+
+                #predictions = self.model(state)
+                #direction0 = torch.argmax(predictions[0]).item()
+                #x0 = torch.argmax(predictions[1]).item()
                 
                 if self.double_dqn:
                     if self.epoch %self.target_copy_intarval==0 and self.epoch>0:
@@ -263,23 +269,34 @@ class Block_Controller(object):
                     self.target_model.eval()
                     #======predict Q(S_t+1 max_a Q(s_(t+1),a))======
                     with torch.no_grad():
-                        target_q_values = self.target_model(next_state_batch)
-                        next_q_argmax = torch.argmax(target_q_values, dim=1)
-                        next_q_argmax_onehot = torch.nn.functional.one_hot(next_q_argmax, num_classes=self.class_num)
-                    next_q_values = torch.abs(q_values*next_q_argmax_onehot)
-                    next_q_values_max, _  = torch.max(next_q_values, dim=1)
+                        #arget_q_values = self.target_model(next_state_batch)
+                        #next_q_argmax = torch.argmax(target_q_values, dim=1)
+                        #next_q_argmax_onehot = torch.nn.functional.one_hot(next_q_argmax, num_classes=self.class_num)
+
+                        target_predictions = self.target_model(next_state_batch)
+                        next_direction0_q_argmax = torch.argmax(target_predictions[0], dim=1)
+                        next_direction0_q_argmax_onehot = torch.nn.functional.one_hot(next_direction0_q_argmax, num_classes=4)           
+
+                        next_x0_q_argmax = torch.argmax(target_predictions[1], dim=1)
+                        next_x0_q_argmax_onehot = torch.nn.functional.one_hot(next_x0_q_argmax, num_classes=10)            
+                        
+
+                    next_direction0_q_values = torch.abs(predictions[0] * next_direction0_q_argmax_onehot)
+                    next_x0_q_values = torch.abs(predictions[1] * next_x0_q_argmax_onehot)
+                    
+                    
+                    next_direction0_q_values_max, _  = torch.max(next_direction0_q_values, dim=1)
+                    next_x0_q_values_max, _  = torch.max(next_x0_q_values, dim=1)
+
+                    q_values_max = torch.stack((next_direction0_q_values_max, next_x0_q_values_max), dim=1)
+
+                    
                 else:
                     if self.epoch %self.target_copy_intarval==0 and self.epoch>0:
                         print("target_net update...")
                         self.target_model = torch.load(self.best_weight)
                     self.model.eval()
-                    with torch.no_grad():
-                        target_q_values = self.model(next_state_batch)
-                        next_q_argmax = torch.argmax(target_q_values, dim=1)
-                        next_q_argmax_onehot = torch.nn.functional.one_hot(next_q_argmax, num_classes=self.class_num)
-                    
-                    next_q_values = torch.abs(q_values*next_q_argmax_onehot)
-                    next_q_values_max, _ = torch.max(next_q_values, dim=1)
+                    exit()
 
 
                 self.model.train()
@@ -287,20 +304,35 @@ class Block_Controller(object):
                 
                 if self.multi_step_learning:
                     print("multi step learning update")
-                    y_batch = self.MSL.get_y_batch(done_batch,reward_batch, next_q_values_max)              
+                    exit()
+                    #y_batch = self.MSL.get_y_batch(done_batch,reward_batch, next_q_values_max)              
                 else:
+                    y_batch = torch.empty((1, 2))
                     
-                    y_batch = torch.cat(
-                        tuple(reward if done[0] else reward + self.gamma * prediction for done ,reward, prediction in
-                            zip(done_batch,reward_batch, next_q_values_max)))[:, None]
+                    for done ,reward, d0, x0 in zip(done_batch,reward_batch, next_direction0_q_values_max, next_x0_q_values_max):
+                        if done[0]:
+                            temp = torch.tensor([[reward, reward]])
+                            y_batch = torch.cat((y_batch, temp), 0)
+                        else:
+                            #a = tuple([reward, reward])
+                            temp = torch.tensor([[reward + self.gamma * d0, reward + self.gamma * x0]])
+                            y_batch = torch.cat((y_batch, temp), 0)
+
                 
+                    y_batch = y_batch[1:]   
+         
+                                                    
+                    #y_batch = torch.cat(tuple([reward, reward] if done[0] else [reward + self.gamma * d0, reward + self.gamma * x0]
+                    #          for done ,reward, d0, x0 in zip(done_batch,reward_batch, 
+                    #                                          next_direction0_q_values_max, next_x0_q_values_max)))[:, None]
+
                 self.optimizer.zero_grad()
                 if self.prioritized_replay:
                     
-                    loss_weights = self.PER.update_priority(replay_batch_index, reward_batch, q_values_max, next_q_values_max)
+                    #loss_weights = self.PER.update_priority(replay_batch_index, reward_batch, q_values_max, next_q_values_max)
                     #print(loss_weights *nn.functional.mse_loss(q_values, y_batch))
                     #loss = (loss_weights *self.criterion(q_values, y_batch)).mean()
-
+ 
                     loss = self.criterion(q_values_max, y_batch)
                     loss.backward()
                     
@@ -570,11 +602,10 @@ class Block_Controller(object):
 
             with torch.no_grad():
                 state = torch.from_numpy(state[np.newaxis,:,:]).float()
-                predictions = self.model(state)[0]
-            
-            index = torch.argmax(predictions).item()
-            x0 = index // 4
-            direction0 = (index % 4)
+
+                predictions = self.model(state)
+                direction0 = torch.argmax(predictions[0]).item()
+                x0 = torch.argmax(predictions[1]).item()
             
             # Clip x0 to max direction
             if curr_piece_id == 5:  
@@ -605,17 +636,21 @@ class Block_Controller(object):
         else:
             random_action =  False  
 
-        model.train()
-        with torch.no_grad():
-            state = torch.from_numpy(state[np.newaxis,:,:]).float()
-            predictions = model(state)[0]
-        if random_action:
-            index = randint(0, 39)
-        else:
-            index = torch.argmax(predictions).item()
-        x0 = index // 4
-        direction0 = (index % 4)
+        #random_action =  False  
+        state = torch.from_numpy(state[np.newaxis,:,:]).float()
         
+        if random_action:
+            direction0 = randint(0, 3)
+            x0 = randint(0, 9)
+        else:
+            model.train()
+            with torch.no_grad():
+                
+                predictions = model(state)
+                direction0 = torch.argmax(predictions[0]).item()
+                x0 = torch.argmax(predictions[1]).item()
+
+
         # Clip x0 to max direction
         if curr_piece_id == 5:  
             direction0 = 0
@@ -632,16 +667,20 @@ class Block_Controller(object):
         action = (x0, direction0)
 
         x0Min, x0Max = self.getSearchXRange(curr_shape_class, direction0)
-        #print(x0, curr_piece_id, direction0)
-        #print(block_control_range)
-        #print(x0Min, x0Max)
+        
+        # print(block_control_range)
+        # rint(x0Min, x0Max)
+        # print(action)
+        # print(state[0][curr_piece_id - 1].flatten())
+        
+        #exit()
         #lprint(state[0][curr_piece_id - 1])
         next_backboard = self.getBoard(state[0][curr_piece_id - 1].flatten(), curr_shape_class, direction0, x0)
         
         next_state = self.get_reshape_backboard(next_backboard)
         
         reward = self.reward_func(state[0][curr_piece_id - 1].flatten(), action, curr_shape_class)
-
+        
         return next_state, reward, action
 
     def convert_state_to_multi_channel(self, state, piece_id, block_pattern=7):
