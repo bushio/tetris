@@ -311,8 +311,14 @@ class BoardData(object):
                 self.nextShapeIndexCnt = 0
         else:
             # random value
-            nextShapeIndex = np_randomShape.random.randint(1, 8)
+            #nextShapeIndex = np_randomShape.random.randint(1, 8)
+            import numpy as np 
+            weights = [0.0, 0.0 , 0.0 , 0.0, 1.0, 0.0, 0.0 ,0.0]
+            nextShapeIndex = np.random.choice([i for i in range(1,9)], p = weights)
+            #print(nextShapeIndex)
+            #exit()
         return nextShapeIndex
+
 
     #####################################
     ## 新しい予告テトリミノ配列作成
