@@ -106,6 +106,7 @@ class PRIORITIZED_EXPERIENCE_REPLAY():
             # index 新規なら memo に追加
             memo.append(index)
             # 勾配計算なしで誤差計算 (割引率γおりこみ)
+
             with torch.no_grad():
                 TD_error = float(reward_batch[i] + self.gamma *next_q_batch[i] - q_batch[i])
             self.replay_priority_queue[index] = abs(TD_error)

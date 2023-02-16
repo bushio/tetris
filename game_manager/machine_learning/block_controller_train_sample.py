@@ -262,22 +262,25 @@ class Block_Controller(object):
                 done_batch = torch.from_numpy(np.array(done_batch)[:, None])
 
                 #max_next_state_batch = torch.stack(tuple(state for state in max_next_state_batch))
+                self.model.train()
                 q_values = self.model(state_batch)
                 q_values_max, _ = torch.max(q_values, dim=1)
                 
                 if self.double_dqn:
                     if self.epoch %self.target_copy_intarval==0 and self.epoch>0:
                         print("target_net update...")
-                        #self.target_model = torch.load(self.best_weight)
-                        self.target_model = copy.copy(self.model)
+                        self.target_model = torch.load(self.best_weight)
+                        #self.target_model = copy.copy(self.model)
                     self.target_model.eval()
                     #======predict Q(S_t+1 max_a Q(s_(t+1),a))======
                     with torch.no_grad():
                         target_q_values = self.target_model(next_state_batch)
                         next_q_argmax = torch.argmax(target_q_values, dim=1)
                         next_q_argmax_onehot = torch.nn.functional.one_hot(next_q_argmax, num_classes=self.class_num)
-                    next_q_values = torch.abs(q_values*next_q_argmax_onehot)
-                    next_q_values_max, _  = torch.max(next_q_values, dim=1)
+                        
+                        next_q_values = self.model(next_state_batch)
+                        next_q_values = next_q_values * next_q_argmax_onehot
+                        next_q_values_max, _  = torch.max(next_q_values, dim=1)
                 else:
                     if self.epoch %self.target_copy_intarval==0 and self.epoch>0:
                         print("target_net update...")
@@ -288,8 +291,9 @@ class Block_Controller(object):
                         next_q_argmax = torch.argmax(target_q_values, dim=1)
                         next_q_argmax_onehot = torch.nn.functional.one_hot(next_q_argmax, num_classes=self.class_num)
                     
-                    next_q_values = torch.abs(q_values*next_q_argmax_onehot)
-                    next_q_values_max, _ = torch.max(next_q_values, dim=1)
+                        next_q_values = self.model(next_state_batch)
+                        next_q_values = torch.abs(next_q_values * next_q_argmax_onehot)
+                        next_q_values_max, _ = torch.max(next_q_values, dim=1)
 
 
                 self.model.train()
@@ -660,7 +664,7 @@ class Block_Controller(object):
         #print(x0, curr_piece_id, direction0)
         #print(block_control_range)
         #print(x0Min, x0Max)
-        #lprint(state[0][curr_piece_id - 1])
+        #print(state[0][curr_piece_id - 1])
         next_backboard = self.getBoard(state[0][curr_piece_id - 1].flatten(), curr_shape_class, direction0, x0)
 
 
@@ -668,6 +672,7 @@ class Block_Controller(object):
         
         reward = self.reward_func(state[0][curr_piece_id - 1].flatten(), action, curr_shape_class)
 
+        #print(reward)
         return next_state, reward, action
 
     def convert_state_to_multi_channel(self, state, piece_id, block_pattern=7):
