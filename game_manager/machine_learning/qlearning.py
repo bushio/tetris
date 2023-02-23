@@ -95,7 +95,7 @@ class PRIORITIZED_EXPERIENCE_REPLAY():
     ####################################
     # 報酬から優先度更新
     ####################################
-    def update_priority(self,replay_batch_index,reward_batch,q_batch,next_q_batch):
+    def update_priority(self,replay_batch_index,q_batch,y_batch):
         memo = []
         weights = []
         for i,index in enumerate(replay_batch_index):
@@ -106,9 +106,10 @@ class PRIORITIZED_EXPERIENCE_REPLAY():
             # index 新規なら memo に追加
             memo.append(index)
             # 勾配計算なしで誤差計算 (割引率γおりこみ)
+
             with torch.no_grad():
-                TD_error = float(reward_batch[i] + self.gamma *next_q_batch[i] - q_batch[i])
-            self.replay_priority_queue[index] = abs(TD_error)
+                TD_error = abs(float(y_batch[i][0] - q_batch[i][0])) + abs(float(y_batch[i][1] - q_batch[i][1]))
+            self.replay_priority_queue[index] = TD_error
         # Numpy にもどす
         weights  = np.array(weights,dtype=np.float64)
         #print(self.replay_priority_queue)

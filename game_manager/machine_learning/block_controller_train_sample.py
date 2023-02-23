@@ -87,6 +87,11 @@ class Block_Controller(object):
         self.width = cfg["tetris"]["board_width"]
         self.max_tetrominoes = cfg["tetris"]["max_tetrominoes"]
         
+        
+        self.smooth = 0.1
+        self.epsilon = 1.0
+
+
         #=====load Deep Q Network=====
         self.state_dim = cfg["state"]["dim"]
         print("model name: %s"%(cfg["model"]["name"]))
@@ -123,8 +128,8 @@ class Block_Controller(object):
                     print("Finetuning mode\nLoad {}...".format(self.ft_weight), file=f)
                 
             
-#        if torch.cuda.is_available():
-#            self.model.cuda()
+        if torch.cuda.is_available():
+            self.model.cuda()
         
         #=====Set hyper parameter=====
         self.batch_size = cfg["train"]["batch_size"]
@@ -190,6 +195,9 @@ class Block_Controller(object):
             print("set target network...")
             self.target_model = copy.deepcopy(self.model)
             self.target_copy_intarval = cfg["train"]["target_copy_intarval"]
+
+            if torch.cuda.is_available():
+                self.target_model.cuda()
             
         #=====Prioritized Experience Replay=====
         self.prioritized_replay = cfg["train"]["prioritized_replay"]
@@ -240,10 +248,16 @@ class Block_Controller(object):
 
                 state_batch, reward_batch, next_state_batch, curr_piece_id_batch, next_piece_id_batch, done_batch = zip(*batch)
 
-                state_batch = torch.stack(state_batch)
-                
-                reward_batch = torch.from_numpy(np.array(reward_batch, dtype=np.float32)[:, None])
-                next_state_batch = torch.stack(next_state_batch)
+                if torch.cuda.is_available():
+
+                    state_batch = torch.stack(tuple(state.cuda() for state in state_batch))
+                    reward_batch = torch.stack(tuple(reward for reward in reward_batch))
+                    next_state_batch = torch.stack(tuple(next_state.cuda() for next_state in next_state_batch))
+                else:
+                    state_batch = torch.stack(state_batch)
+                    reward_batch = torch.from_numpy(np.array(reward_batch, dtype=np.float32)[:, None])
+                    next_state_batch = torch.stack(next_state_batch)
+
                 
                 curr_piece_id_batch = torch.from_numpy(np.array(curr_piece_id_batch, dtype=np.float32)[:, None])
 
@@ -254,17 +268,21 @@ class Block_Controller(object):
                 #max_next_state_batch = torch.stack(tuple(state for state in max_next_state_batch))
                 predictions  = self.model(state_batch)
                 
-                q_values_direction0_max, _ = torch.max(predictions[0], dim=1)
-                q_values_x0_max, _ = torch.max(predictions[0], dim=1)
+                direction0_q_values_max, _ = torch.max(predictions[0], dim=1)
+                x0_q_values_max, _ = torch.max(predictions[0], dim=1)
 
                 #predictions = self.model(state)
                 #direction0 = torch.argmax(predictions[0]).item()
                 #x0 = torch.argmax(predictions[1]).item()
-                
+                q_values_max = torch.stack((direction0_q_values_max, x0_q_values_max), dim=1)
+
                 if self.double_dqn:
                     if self.epoch %self.target_copy_intarval==0 and self.epoch>0:
                         print("target_net update...")
-                        self.target_model = torch.load(self.best_weight)
+                        #self.target_model = torch.load(self.best_weight)
+                        self.target_model = copy.copy(self.model)
+                        if torch.cuda.is_available():
+                            self.target_model.cuda()
                         #self.target_model = copy.copy(self.model)
                     self.target_model.eval()
                     #======predict Q(S_t+1 max_a Q(s_(t+1),a))======
@@ -287,9 +305,6 @@ class Block_Controller(object):
                     
                     next_direction0_q_values_max, _  = torch.max(next_direction0_q_values, dim=1)
                     next_x0_q_values_max, _  = torch.max(next_x0_q_values, dim=1)
-
-                    q_values_max = torch.stack((next_direction0_q_values_max, next_x0_q_values_max), dim=1)
-
                     
                 else:
                     if self.epoch %self.target_copy_intarval==0 and self.epoch>0:
@@ -307,33 +322,39 @@ class Block_Controller(object):
                     exit()
                     #y_batch = self.MSL.get_y_batch(done_batch,reward_batch, next_q_values_max)              
                 else:
-                    y_batch = torch.empty((1, 2))
+                    if torch.cuda.is_available():
+                        y_batch = torch.empty((1, 2)).cuda()
+                    else:
+                        y_batch = torch.empty((1, 2))
                     
                     for done ,reward, d0, x0 in zip(done_batch,reward_batch, next_direction0_q_values_max, next_x0_q_values_max):
                         if done[0]:
-                            temp = torch.tensor([[reward, reward]])
+                            if torch.cuda.is_available():
+                                temp = torch.tensor([[reward, reward]]).cuda()
+                            else:
+                                temp = torch.tensor([[reward, reward]])
                             y_batch = torch.cat((y_batch, temp), 0)
                         else:
-                            #a = tuple([reward, reward])
-                            temp = torch.tensor([[reward + self.gamma * d0, reward + self.gamma * x0]])
+                            if torch.cuda.is_available():
+                                temp = torch.tensor([[reward + self.gamma * d0, reward + self.gamma * x0]]).cuda()
+                            else:
+                                temp = torch.tensor([[reward + self.gamma * d0, reward + self.gamma * x0]])
                             y_batch = torch.cat((y_batch, temp), 0)
 
                 
-                    y_batch = y_batch[1:]   
-         
-                                                    
-                    #y_batch = torch.cat(tuple([reward, reward] if done[0] else [reward + self.gamma * d0, reward + self.gamma * x0]
-                    #          for done ,reward, d0, x0 in zip(done_batch,reward_batch, 
-                    #                                          next_direction0_q_values_max, next_x0_q_values_max)))[:, None]
+                    y_batch = y_batch[1:]
 
                 self.optimizer.zero_grad()
                 if self.prioritized_replay:
                     
-                    #loss_weights = self.PER.update_priority(replay_batch_index, reward_batch, q_values_max, next_q_values_max)
+                    loss_weights = self.PER.update_priority(replay_batch_index,  q_values_max, y_batch)
+
+                    if torch.cuda.is_available():
+                        loss_weights = loss_weights.cuda()
                     #print(loss_weights *nn.functional.mse_loss(q_values, y_batch))
-                    #loss = (loss_weights *self.criterion(q_values, y_batch)).mean()
+                    loss = (loss_weights *self.criterion(q_values_max, y_batch)).mean()
  
-                    loss = self.criterion(q_values_max, y_batch)
+                    #loss = self.criterion(q_values_max, y_batch)
                     loss.backward()
                     
                 else:
@@ -345,9 +366,10 @@ class Block_Controller(object):
                 if self.scheduler!=None:
                     self.scheduler.step()
                 
-                log = "Epoch: {} / {}, Score: {},  block: {},  Reward: {:.1f} Cleared lines: {}".format(
+                log = "Epoch: {} / {} Epsiron {:.2f}, Score: {},  block: {},  Reward: {:.1f} Cleared lines: {}".format(
                     self.epoch,
                     self.num_epochs,
+                    self.epsilon,
                     self.score,
                     self.tetrominoes,
                     self.epoch_reward,
@@ -406,12 +428,14 @@ class Block_Controller(object):
         self.cleared_lines = 0
         self.epoch_reward = 0
         self.tetrominoes = 0
+
+        torch.cuda.empty_cache()
             
     #削除される列を数える
     def check_cleared_rows(self,board):
         board_new = np.copy(board)
         lines = 0
-        empty_line = np.array([0 for i in range(self.width)])
+        empty_line = np.array([0 + self.smooth for i in range(self.width)])
         for y in range(self.height - 1, -1, -1):
             blockCount  = np.sum(board[y])
             if blockCount == self.width:
@@ -438,9 +462,9 @@ class Block_Controller(object):
         for i in range(self.width):
             col = board[:,i]
             row = 0
-            while row < self.height and col[row] == 0:
+            while row < self.height and col[row] == (0 + self.smooth):
                 row += 1
-            num_holes += len([x for x in col[row + 1:] if x == 0])
+            num_holes += len([x for x in col[row + 1:] if x == (0 + self.smooth) ])
         return num_holes
 
     #
@@ -461,7 +485,7 @@ class Block_Controller(object):
     def get_max_height(self, board):
         sum_ = np.sum(board,axis=1)
         row = 0
-        while row < self.height and sum_[row] ==0:
+        while row < self.height and sum_[row] ==(0 + self.smooth*self.width):
             row += 1
         return self.height - row
 
@@ -509,7 +533,7 @@ class Block_Controller(object):
     def get_reshape_backboard(self,board):
         board = np.array(board)
         reshape_board = board.reshape(self.height,self.width)
-        reshape_board = np.where(reshape_board>0,1,0)
+        reshape_board = np.where(reshape_board>(0 + self.smooth),1,0 + self.smooth)
         return reshape_board
 
     #報酬を計算(2次元用) 
@@ -581,6 +605,11 @@ class Block_Controller(object):
             #self.replay_memory.append([next_state, reward, next2_state,done])
             state_tensor = torch.from_numpy(state).float()
             next_state_tensor = torch.from_numpy(next_state).float()
+
+            if torch.cuda.is_available():
+                next_state_tensor = next_state_tensor.cuda()
+                reward =  torch.from_numpy(np.array(reward, dtype=np.float32)).unsqueeze(dim=0).clone()
+                reward = reward.cuda()  
             
             self.episode_memory.append([state_tensor, reward, next_state_tensor, 
                                             curr_piece_id, next_piece_id, done])
@@ -629,24 +658,29 @@ class Block_Controller(object):
     def get_reward_by_model(self, model, state, curr_piece_id, curr_shape_class, random_flag=True):
         
         if random_flag:
-            epsilon = self.final_epsilon + (max(self.num_decay_epochs - self.epoch, 0) * (
+            self.epsilon = self.final_epsilon + (max(self.num_decay_epochs - self.epoch, 0) * (
                     self.initial_epsilon - self.final_epsilon) / self.num_decay_epochs)
             u = random()
-            random_action = u <= epsilon
+            random_action = u <= self.epsilon 
+
         else:
             random_action =  False  
 
-        #random_action =  False  
         state = torch.from_numpy(state[np.newaxis,:,:]).float()
-        
+
+        if torch.cuda.is_available():
+            state_ = state.cuda()
+        else:
+            state_ = state
+
+
         if random_action:
             direction0 = randint(0, 3)
             x0 = randint(0, 9)
         else:
             model.train()
             with torch.no_grad():
-                
-                predictions = model(state)
+                predictions = model(state_)
                 direction0 = torch.argmax(predictions[0]).item()
                 x0 = torch.argmax(predictions[1]).item()
 

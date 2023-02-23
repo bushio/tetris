@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch
+import torch.nn.functional as F
 
 class MLP(nn.Module):
     def __init__(self,input_dim):
@@ -111,22 +112,23 @@ class DeepQNetwork3(nn.Module):
     def __init__(self):
         super(DeepQNetwork3, self).__init__()
         self.conv1 = nn.Sequential(
-                nn.Conv2d(7, 112, groups=7, kernel_size=4, stride=2, padding=1,
+                nn.Conv2d(7, 112, groups=7, kernel_size=3, stride=1, padding=0,
                 padding_mode='zeros',bias=False),
                 nn.ReLU())
         
         self.conv2 = nn.Sequential(
                 nn.ConstantPad2d((2,2,2,2),0),
-                nn.Conv2d(112, 112, groups=7, kernel_size=5, stride=1,padding=0,
+                nn.Conv2d(112, 224, groups=7, kernel_size=3, stride=1,padding=0,
                 bias=False),
                 nn.ReLU())
         
         self.conv3 = nn.Sequential(
-                nn.Conv2d(112, 64, kernel_size=5, stride=2, 
+                nn.Conv2d(224, 448,  groups=7, kernel_size=3, stride=2, 
                 bias=False, padding_mode='zeros'),
                 nn.ReLU())
         
-        self.num_feature = 64*4*1
+        self.num_feature = 448*11*5
+
         self.fc1 = nn.Sequential(nn.Linear(self.num_feature,256))
         self.fc2 = nn.Sequential(nn.Linear(256,256))
         self.fc3 = nn.Sequential(nn.Linear(256,256))
@@ -142,8 +144,10 @@ class DeepQNetwork3(nn.Module):
                 nn.init.xavier_uniform_(m.weight)
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, x1):
-        x = self.conv1(x1)
+    def forward(self, x):
+        x = F.pad(x,(1, 1, 1, 1), "constant", -1)
+
+        x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
         x = x.view(-1, self.num_feature)
