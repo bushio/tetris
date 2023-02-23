@@ -29,16 +29,16 @@ train:
   lr_gamma: 0.1 # SGD 用 ... Step Size 進んだ EPOCH で gammma が学習率に乗算される (0 to 1.0)
   lr_momentum: 0.99 # SGD 用 ... モーメンタム... 今までの移動とこれから動くべき移動の平均をとり振動を防ぐための関数 (0 to 1.0)
   lr_step_size: 1000 # SGD 用 ... step size 学習率更新タイミングの EPOCH 数  (1 to num_epoch)
-  num_epoch: 10000 # 試行回数 (lr_step_size to num_epoch)
-  num_decay_epochs: 3500 # ε収束させる試行回数
+  num_epoch: 20000 # 試行回数 (lr_step_size to num_epoch)
+  num_decay_epochs: 10000 # ε収束させる試行回数
   initial_epsilon: 1.0 # ε... 学習が局所解にならないように乱数で動かして最適値する。学習初期は 1, 初期値 Fine Tune の場合は小さめに  (0 to 1.0)
-  final_epsilon: 1.0e-3 # 上記εを漸減させたときの最終値 num_decay_epochs 試行後  (0 to final_epsilon)
+  final_epsilon: 1.0e-1 # 上記εを漸減させたときの最終値 num_decay_epochs 試行後  (0 to final_epsilon)
   batch_size: 512 # バッチサイズ　確率的勾配降下法における、全パラメータのうちランダム抽出して勾配を求めるパラメータの数 (2^n)
-  gamma: 0.8 # 割引率 ... t+1 の報酬をどの程度割り引いて考えるか (0 to 1.0)
+  gamma: 0.6 # 割引率 ... t+1 の報酬をどの程度割り引いて考えるか (0 to 1.0)
   max_penalty: -1 # 正規化する場合の最小報酬 ( to 0)
   target_net: True #Target net, double_dqn 有効の場合は無条件で有効  (True False) 
   target_copy_intarval: 500 # Target Net をロードする EPOCH 数間隔  (1 to num_epoch)
-  replay_memory_size: 30000  # (1 to num_epoch*10)
+  replay_memory_size: 50000  # (1 to num_epoch*10)
   double_dqn: True # Dobule DQN 有効化 #DQN限定 (True False)
   reward_clipping: True # 報酬を 1 で正規化、ただし消去報酬のみ
   prioritized_replay: True # 優先順位つき再生学習 有効化 (True False)
@@ -47,16 +47,16 @@ train:
 
   reward_list: #These parameter are not normalized. 消去報酬の配分
     - 0  #survival
-    - 500 #0 #1block
-    - 1500 #2block
-    - 5000 #3block
+    - 5000 #0 #1block
+    - 7500 #2block
+    - 10000 #3block
     - 10000 #4block
     - -10000 #game over
   height_line_reward: 3 #低いところの消去ほど有効とする設定(10000 くらいでほぼ無効 大きい値ほど報酬小さい)
   reward_weight: # 形状報酬の配分
-    - 0.0005 #1 #bampiness 
-    - 0.01 #1 #max height
-    - 0.001 #1 #hole_num
+    - 0.005 #1 #bampiness 
+    - 0.001 #1 #max height
+    - 0.0001 #1 #hole_num
   bumpiness_left_side_relax: 1 # 左端のでこぼこだけどこまで許容するか
   max_height_relax: 14 # 高さをどこまで許容するか(左記より大きい)
 
