@@ -43,6 +43,9 @@ class Block_Controller(object):
     def set_parameter(self,yaml_file=None,predict_weight=None):
         self.result_warehouse = "outputs/"
         self.latest_dir = self.result_warehouse+"/latest"
+        self.smooth = 0.0
+        self.epsilon = 1.0
+
         if self.mode=="train" or self.mode=="train_sample" or self.mode=="train_sample2":
             dt = datetime.now()
             self.output_dir = self.result_warehouse+ dt.strftime("%Y-%m-%d-%H-%M-%S")
@@ -178,7 +181,7 @@ class Block_Controller(object):
             self.norm_num =max(max(self.reward_list),abs(self.penalty))            
             self.reward_list =[r/self.norm_num for r in self.reward_list]
             self.penalty /= self.norm_num
-            self.penalty = min(cfg["train"]["max_penalty"],self.penalty)
+            self.penalty = min(cfg["train"]["max_penalty"], self.penalty)
 
         #=====Double DQN=====
         self.double_dqn = cfg["train"]["double_dqn"]
@@ -269,8 +272,8 @@ class Block_Controller(object):
                 if self.double_dqn:
                     if self.epoch %self.target_copy_intarval==0 and self.epoch>0:
                         print("target_net update...")
-                        self.target_model = torch.load(self.best_weight)
-                        #self.target_model = copy.copy(self.model)
+                        #self.target_model = torch.load(self.best_weight)
+                        self.target_model = copy.copy(self.model)
                     self.target_model.eval()
                     #======predict Q(S_t+1 max_a Q(s_(t+1),a))======
                     with torch.no_grad():
@@ -279,8 +282,11 @@ class Block_Controller(object):
                         next_q_argmax_onehot = torch.nn.functional.one_hot(next_q_argmax, num_classes=self.class_num)
                         
                         next_q_values = self.model(next_state_batch)
-                        next_q_values = next_q_values * next_q_argmax_onehot
+                        next_q_values = q_values * next_q_argmax_onehot
                         next_q_values_max, _  = torch.max(next_q_values, dim=1)
+
+
+                        
                 else:
                     if self.epoch %self.target_copy_intarval==0 and self.epoch>0:
                         print("target_net update...")
@@ -329,9 +335,10 @@ class Block_Controller(object):
                 if self.scheduler!=None:
                     self.scheduler.step()
                 
-                log = "Epoch: {} / {}, Score: {},  block: {},  Reward: {:.1f} Cleared lines: {}".format(
+                log = "Epoch: {} / {}, Epsiron {:.2f}, Score: {},  block: {},  Reward: {:.1f} Cleared lines: {}".format(
                     self.epoch,
                     self.num_epochs,
+                    self.epsilon,
                     self.score,
                     self.tetrominoes,
                     self.epoch_reward,
@@ -397,12 +404,15 @@ class Block_Controller(object):
     def check_cleared_rows(self,board):
         board_new = np.copy(board)
         lines = 0
-        empty_line = np.array([0 for i in range(self.width)])
+        empty_line = np.array([0.0 + self.smooth for i in range(self.width)])
         for y in range(self.height - 1, -1, -1):
-            blockCount  = np.sum(board[y])
+            blockCount  = np.sum(board_new[y])
             if blockCount == self.width:
                 lines += 1
+                #print(board_new)
                 board_new = np.delete(board_new,y,0)
+                #print(board_new)
+                
                 board_new = np.vstack([empty_line,board_new ])
         return lines,board_new
 
@@ -424,9 +434,9 @@ class Block_Controller(object):
         for i in range(self.width):
             col = board[:,i]
             row = 0
-            while row < self.height and col[row] == 0:
+            while row < self.height and col[row] == (0 + self.smooth):
                 row += 1
-            num_holes += len([x for x in col[row + 1:] if x == 0])
+            num_holes += len([x for x in col[row + 1:] if x == (0 + self.smooth) ])
         return num_holes
 
     #
@@ -447,7 +457,7 @@ class Block_Controller(object):
     def get_max_height(self, board):
         sum_ = np.sum(board,axis=1)
         row = 0
-        while row < self.height and sum_[row] ==0:
+        while row < self.height and sum_[row] ==(0 + self.smooth*self.width):
             row += 1
         return self.height - row
 
@@ -495,7 +505,7 @@ class Block_Controller(object):
     def get_reshape_backboard(self,board):
         board = np.array(board)
         reshape_board = board.reshape(self.height,self.width)
-        reshape_board = np.where(reshape_board>0,1,0)
+        reshape_board = np.where(reshape_board>(0 + self.smooth),1,0 + self.smooth)
         return reshape_board
 
     #報酬を計算(2次元用) 
@@ -503,10 +513,11 @@ class Block_Controller(object):
         x0, direction0 = action
         board = self.getBoard(curr_backboard, curr_shape_class, direction0, x0)
         board = self.get_reshape_backboard(board)
+        lines_cleared, board = self.check_cleared_rows(board)
         bampiness,height = self.get_bumpiness_and_height(board)
         max_height = self.get_max_height(board)
         hole_num = self.get_holes(board)
-        lines_cleared, board = self.check_cleared_rows(board)
+        
         reward = self.reward_list[lines_cleared] 
         reward -= self.reward_weight[0] *bampiness 
         reward -= self.reward_weight[1] * max(0,max_height)
@@ -516,7 +527,7 @@ class Block_Controller(object):
         self.score += self.score_list[lines_cleared]
         self.cleared_lines += lines_cleared
         self.tetrominoes += 1
-        return reward
+        return reward, board
 
     #報酬を計算(1次元用) 
     def step(self, curr_backboard,action,curr_shape_class):
@@ -552,12 +563,11 @@ class Block_Controller(object):
         curr_piece_id =GameStatus["block_info"]["currentShape"]["index"]
         next_piece_id =GameStatus["block_info"]["nextShape"]["index"]
         
-        state = self.get_reshape_backboard(curr_backboard)
-        state = self.convert_state_to_multi_channel(state, curr_piece_id)
+
 
         if self.mode=="train" or self.mode=="train_sample" or self.mode=="train_sample2":
-            next_state, reward, action = self.get_reward_by_model(self.model, 
-                                state, 
+            state, next_state, reward, action = self.get_reward_by_model(self.model, 
+                                curr_backboard,
                                 curr_piece_id, 
                                 curr_shape_class)
             next_state = self.convert_state_to_multi_channel(next_state, next_piece_id)
@@ -618,21 +628,24 @@ class Block_Controller(object):
             nextMove["strategy"]["y_moveblocknum"] = 1
         return nextMove
  
-    def get_reward_by_model(self, model, state, curr_piece_id, curr_shape_class, random_flag=True):
-        
+    def get_reward_by_model(self, model, curr_board, curr_piece_id, curr_shape_class, random_flag=True):
+
+        state = self.get_reshape_backboard(curr_board)
+        state = self.convert_state_to_multi_channel(state, curr_piece_id)
+
         if random_flag:
-            epsilon = self.final_epsilon + (max(self.num_decay_epochs - self.epoch, 0) * (
+            self.epsilon = self.final_epsilon + (max(self.num_decay_epochs - self.epoch, 0) * (
                     self.initial_epsilon - self.final_epsilon) / self.num_decay_epochs)
             u = random()
-            random_action = u <= epsilon
+            random_action = u <= self.epsilon
         else:
             random_action =  False  
 
-        state = torch.from_numpy(state[np.newaxis,:,:]).float()
+        state_ = torch.from_numpy(state[np.newaxis,:,:]).float()
         if torch.cuda.is_available():
-            state_ = state.cuda()
+            state_ = state_.cuda()
         else:
-            state_ = state
+            state_ = state_
         
         model.train()
         with torch.no_grad():
@@ -665,15 +678,15 @@ class Block_Controller(object):
         #print(block_control_range)
         #print(x0Min, x0Max)
         #print(state[0][curr_piece_id - 1])
-        next_backboard = self.getBoard(state[0][curr_piece_id - 1].flatten(), curr_shape_class, direction0, x0)
+        #next_backboard = self.getBoard(curr_board, curr_shape_class, direction0, x0)
 
 
-        next_state = self.get_reshape_backboard(next_backboard)
+        #next_state, = self.get_reshape_backboard(next_backboard)
         
-        reward = self.reward_func(state[0][curr_piece_id - 1].flatten(), action, curr_shape_class)
+        reward, next_state = self.reward_func(curr_board, action, curr_shape_class)
 
         #print(reward)
-        return next_state, reward, action
+        return state, next_state, reward, action
 
     def convert_state_to_multi_channel(self, state, piece_id, block_pattern=7):
         output_state = []
