@@ -102,15 +102,22 @@ class DeepQNetwork2(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
-        x = F.pad(x,(1, 1, 1, 1), "constant", -1)
+        #x = F.pad(x,(0, 0, 1, 0), "constant", -1)
+        x = F.pad(x,(1, 1, 0, 1), "constant", 0)
         x = self.conv1(x)
+        #x1= x.to('cpu').detach().numpy().copy()
+        #print(x1[0][33])
+ 
+        
         x = self.conv2(x)
         x = self.conv3(x)
         x = self.conv4(x)
-        #print(x.shape)
-
         x = x.view(-1, self.num_feature)
-        
+        #x1= x.to('cpu').detach().numpy().copy()
+        #import numpy as np
+
+        #np.savetxt('test.csv', x1[0])
+
         x = self.fc1(x)
         x = self.fc2(x)
         x = self.fc3(x)
