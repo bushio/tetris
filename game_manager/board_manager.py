@@ -313,7 +313,7 @@ class BoardData(object):
             # random value
             #nextShapeIndex = np_randomShape.random.randint(1, 8)
             import numpy as np 
-            weights = [0.0, 0.0 , 0.0 , 0.0, 1.0, 0.0, 0.0 ,0.0]
+            weights = [0.5, 0.0 , 0.0 , 0.0, 0.5, 0.0, 0.0 ,0.0]
             nextShapeIndex = np.random.choice([i for i in range(1,9)], p = weights)
             #print(nextShapeIndex)
             #exit()
