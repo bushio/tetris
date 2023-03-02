@@ -124,8 +124,8 @@ class Block_Controller(object):
                     print("Finetuning mode\nLoad {}...".format(self.ft_weight), file=f)
                 
             
-#        if torch.cuda.is_available():
-#            self.model.cuda()
+        if torch.cuda.is_available():
+            self.model.cuda()
         
         #=====Set hyper parameter=====
         self.batch_size = cfg["train"]["batch_size"]
@@ -240,7 +240,12 @@ class Block_Controller(object):
 
                 state_batch, reward_batch, next_state_batch, done_batch = zip(*batch)
                 state_batch = torch.stack(tuple(state for state in state_batch))
-                reward_batch = torch.from_numpy(np.array(reward_batch, dtype=np.float32)[:, None])
+
+                if torch.cuda.is_available():
+                    reward_batch = torch.stack(tuple(reward for reward in reward_batch))
+                else:
+                    reward_batch = torch.from_numpy(np.array(reward_batch, dtype=np.float32)[:, None])
+                
                 next_state_batch = torch.stack(tuple(state for state in next_state_batch))
 
                 done_batch = torch.from_numpy(np.array(done_batch)[:, None])
@@ -276,7 +281,10 @@ class Block_Controller(object):
                 self.optimizer.zero_grad()
                 if self.prioritized_replay:
                     loss_weights = self.PER.update_priority(replay_batch_index,reward_batch,q_values,next_prediction_batch)
-                    #print(loss_weights *nn.functional.mse_loss(q_values, y_batch))
+
+                    if torch.cuda.is_available():
+                        loss_weights = loss_weights.cuda()
+
                     loss = (loss_weights *self.criterion(q_values, y_batch)).mean()
                     #loss = self.criterion(q_values, y_batch)
                     loss.backward()
@@ -524,8 +532,8 @@ class Block_Controller(object):
             next_actions, next_states = zip(*next_steps.items())
             next_states = torch.stack(next_states)
                        
-#            if torch.cuda.is_available():
-#                next_states = next_states.cuda()
+            if torch.cuda.is_available():
+                next_states = next_states.cuda()
         
             self.model.train()
             with torch.no_grad():
@@ -537,8 +545,13 @@ class Block_Controller(object):
                 index = torch.argmax(predictions).item()
             next_state = next_states[index, :]
             action = next_actions[index]
-            reward = self.reward_func(curr_backboard,action,curr_shape_class)
             
+            reward = self.reward_func(curr_backboard,action,curr_shape_class)
+
+            if torch.cuda.is_available():
+                reward =  torch.from_numpy(np.array(reward, dtype=np.float32)).unsqueeze(dim=0).clone()
+                reward = reward.cuda()
+
             done = False #game over flag
             
             #======predict max_a Q(s_(t+1),a)======
@@ -548,8 +561,8 @@ class Block_Controller(object):
                 next２_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
                 next2_actions, next2_states = zip(*next２_steps.items())
                 next2_states = torch.stack(next2_states)
-#                if torch.cuda.is_available():
-#                    next2_states = next2_states.cuda()
+                if torch.cuda.is_available():
+                    next2_states = next2_states.cuda()
                 self.model.train()
                 with torch.no_grad():
                     next_predictions = self.model(next2_states)[:, 0]
@@ -562,8 +575,8 @@ class Block_Controller(object):
                 next２_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
                 next2_actions, next2_states = zip(*next２_steps.items())
                 next2_states = torch.stack(next2_states)
-#                if torch.cuda.is_available():
-#                    next2_states = next2_states.cuda()
+                if torch.cuda.is_available():
+                    next2_states = next2_states.cuda()
                 self.target_model.train()
                 with torch.no_grad():
                     next_predictions = self.target_model(next2_states)[:, 0]
@@ -576,8 +589,8 @@ class Block_Controller(object):
                 next２_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
                 next2_actions, next2_states = zip(*next２_steps.items())
                 next2_states = torch.stack(next2_states)
-#                if torch.cuda.is_available():
-#                    next2_states = next2_states.cuda()
+                if torch.cuda.is_available():
+                    next2_states = next2_states.cuda()
                 self.model.train()
                 with torch.no_grad():
                     next_predictions = self.model(next2_states)[:, 0]
