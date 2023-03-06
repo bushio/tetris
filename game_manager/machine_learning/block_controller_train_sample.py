@@ -97,8 +97,11 @@ class Block_Controller(object):
             self.get_next_func = self.get_next_states
             self.reward_func = self.step
         elif cfg["model"]["name"]=="DQN":
+            #from machine_learning.model.deepqnet import DeepQNetwork
+            #self.model = DeepQNetwork()
             from machine_learning.model.deepqnet import DeepQNetwork
-            self.model = DeepQNetwork()
+            from machine_learning.model.Transformer import ViT
+            self.model = ViT(dim_vec=8 ,dim_head = 8, mlp_dim = 16)
             self.initial_state = torch.FloatTensor([[[0 for i in range(10)] for j in range(22)]])
             self.get_next_func = self.get_next_states_v2
             self.reward_func = self.step_v2
@@ -257,8 +260,8 @@ class Block_Controller(object):
                 if self.target_net:
                     if self.epoch %self.target_copy_intarval==0 and self.epoch>0:
                         print("target_net update...")
-                        self.target_model = torch.load(self.best_weight)
-                        #self.target_model = copy.copy(self.model)
+                        #self.target_model = torch.load(self.best_weight)
+                        self.target_model = copy.copy(self.model)
                     self.target_model.eval()
                     #======predict Q(S_t+1 max_a Q(s_(t+1),a))======
                     with torch.no_grad():
@@ -558,8 +561,8 @@ class Block_Controller(object):
             #if use double dqn, predicted by main model
             if self.double_dqn:
                 next_backboard  = self.getBoard(curr_backboard, curr_shape_class, action[1], action[0])
-                next２_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
-                next2_actions, next2_states = zip(*next２_steps.items())
+                next2_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
+                next2_actions, next2_states = zip(*next2_steps.items())
                 next2_states = torch.stack(next2_states)
                 if torch.cuda.is_available():
                     next2_states = next2_states.cuda()
@@ -572,8 +575,9 @@ class Block_Controller(object):
             #if use target net, predicted by target model
             elif self.target_net:
                 next_backboard  = self.getBoard(curr_backboard, curr_shape_class, action[1], action[0])
-                next２_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
-                next2_actions, next2_states = zip(*next２_steps.items())
+
+                next2_steps = self.get_next_func(next_backboard,next_piece_id,next_shape_class)
+                next2_actions, next2_states = zip(*next2_steps.items())
                 next2_states = torch.stack(next2_states)
                 if torch.cuda.is_available():
                     next2_states = next2_states.cuda()
@@ -586,8 +590,8 @@ class Block_Controller(object):
             #if not use target net,predicted by main model
             else:
                 next_backboard  = self.getBoard(curr_backboard, curr_shape_class, action[1], action[0])
-                next２_steps =self.get_next_func(next_backboard,next_piece_id,next_shape_class)
-                next2_actions, next2_states = zip(*next２_steps.items())
+                next2_steps = self.get_next_func(next_backboard,next_piece_id,next_shape_class)
+                next2_actions, next2_states = zip(*next2_steps.items())
                 next2_states = torch.stack(next2_states)
                 if torch.cuda.is_available():
                     next2_states = next2_states.cuda()
