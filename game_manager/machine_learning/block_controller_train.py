@@ -1592,7 +1592,7 @@ class Block_Controller(object):
             if self.double_dqn:
                 # 画面ボードデータをコピーして 指定座標にテトリミノを配置し落下させた画面ボードとy座標を返す
                 next_backboard, drop_y  = self.getBoard(curr_backboard, curr_shape_class, action[1], action[0], action[2])
-                get_next2_state_all = False
+                get_next2_state_all = True
                 if get_next2_state_all:
                     next2_states = tuple()
                     for block_id in range(1, 8):
@@ -1609,7 +1609,7 @@ class Block_Controller(object):
 
                     next2_steps = self.get_next_func(next_backboard, next_piece_id, next_shape_class)
                     # 次の状態一覧の action と states で配列化
-                    next2_actions, next2_states_ = zip(*next2_steps.items())
+                    next2_actions, next2_states = zip(*next2_steps.items())
 
                 next2_states = torch.stack(next2_states)
                 ## GPU 使用できるときは使う
