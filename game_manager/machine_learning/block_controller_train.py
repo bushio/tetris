@@ -1043,6 +1043,7 @@ class Block_Controller(object):
             print (invert_heights)
             print("first_direction:", num_rotations, " | ", CurrentShape_class.shape)
 
+        """
         ######## 1 回目の 回転
         for first_direction in range(num_rotations):
             if self.debug_flag_shift_rotation == 1:
@@ -1178,10 +1179,11 @@ class Block_Controller(object):
                 #end third
             #end second
         #end first
-
+        
         # Debug
         if self.debug_flag_shift_rotation_success == 1 :
             print("")
+        """
         #print (len(states))
         ## states (action) を返す
         return states
@@ -1590,15 +1592,30 @@ class Block_Controller(object):
             if self.double_dqn:
                 # 画面ボードデータをコピーして 指定座標にテトリミノを配置し落下させた画面ボードとy座標を返す
                 next_backboard, drop_y  = self.getBoard(curr_backboard, curr_shape_class, action[1], action[0], action[2])
-                #画面ボードで テトリミノ回転状態 に落下させたときの次の状態一覧を作成
-                next2_steps = self.get_next_func(next_backboard, next_piece_id, next_shape_class)
-                # 次の状態一覧の action と states で配列化
-                next2_actions, next2_states = zip(*next2_steps.items())
-                # next_states のテンソルを連結
+                get_next2_state_all = False
+                if get_next2_state_all:
+                    next2_states = tuple()
+                    for block_id in range(1, 8):
+                        next_shape_class_dummy = ShapeDummy(block_id)
+                        #画面ボードで テトリミノ回転状態 に落下させたときの次の状態一覧を作成
+                        next2_steps = self.get_next_func(next_backboard, block_id, next_shape_class_dummy)
+                        # 次の状態一覧の action と states で配列化
+                        next2_actions, next2_states_ = zip(*next2_steps.items())
+                        # next_states のテンソルを連結
+
+                        next2_states += next2_states_
+                else:
+                    #画面ボードで テトリミノ回転状態 に落下させたときの次の状態一覧を作成
+
+                    next2_steps = self.get_next_func(next_backboard, next_piece_id, next_shape_class)
+                    # 次の状態一覧の action と states で配列化
+                    next2_actions, next2_states_ = zip(*next2_steps.items())
+
                 next2_states = torch.stack(next2_states)
                 ## GPU 使用できるときは使う
                 if torch.cuda.is_available():
                     next2_states = next2_states.cuda()
+
                 ##########################
                 # モデルの学習実施
                 ##########################
@@ -2057,4 +2074,81 @@ class Block_Controller(object):
             #center_x, center_y の 画面ボードにブロックを配置して、その画面ボードデータを返す
             _board[(_y + center_y) * self.board_data_width + _x] = Shape_class.shape
         return _board
+    
+
+class ShapeDummy(object):
+    shapeNone = 0
+    shapeI = 1
+    shapeL = 2
+    shapeJ = 3
+    shapeT = 4
+    shapeO = 5
+    shapeS = 6
+    shapeZ = 7
+
+    #テトリミノ形状座標タプル
+    shapeCoord = (
+        ((0, 0), (0, 0), (0, 0), (0, 0)),
+        ((0, -1), (0, 0), (0, 1), (0, 2)),
+        ((0, -1), (0, 0), (0, 1), (1, 1)),
+        ((0, -1), (0, 0), (0, 1), (-1, 1)),
+        ((0, -1), (0, 0), (0, 1), (1, 0)),
+        ((0, 0), (0, -1), (1, 0), (1, -1)),
+        ((0, 0), (0, -1), (-1, 0), (1, -1)),
+        ((0, 0), (0, -1), (1, 0), (-1, -1))
+    )
+
+    def __init__(self, shape=0):
+        self.shape = shape
+
+    ##############################
+    # テトリミノ形状を回転した座標を返す
+    # direction: テトリミノ回転方向
+    ##############################
+    def getRotatedOffsets(self, direction):
+        # テトリミノ形状座標タプルを取得
+        tmpCoords = ShapeDummy.shapeCoord[self.shape]
+        # 方向によってテトリミノ形状座標タプルを回転させる
+        if direction == 0 or self.shape == ShapeDummy.shapeO:
+            return ((x, y) for x, y in tmpCoords)
+
+        if direction == 1:
+            return ((-y, x) for x, y in tmpCoords)
+
+        if direction == 2:
+            if self.shape in (ShapeDummy.shapeI, ShapeDummy.shapeZ, ShapeDummy.shapeS):
+                return ((x, y) for x, y in tmpCoords)
+            else:
+                return ((-x, -y) for x, y in tmpCoords)
+
+        if direction == 3:
+            if self.shape in (ShapeDummy.shapeI, ShapeDummy.shapeZ, ShapeDummy.shapeS):
+                return ((-y, x) for x, y in tmpCoords)
+            else:
+                return ((y, -x) for x, y in tmpCoords)
+
+    ###################
+    # direction (回転状態)のテトリミノ座標配列を取得し、それをx,yに配置した場合の座標配列を返す
+    ###################
+    def getCoords(self, direction, x, y):
+        return ((x + xx, y + yy) for xx, yy in self.getRotatedOffsets(direction))
+
+    ###################
+    # テトリミノが原点から x,y 両方向に最大何マス占有するのか返す
+    ###################
+    def getBoundingOffsets(self, direction):
+        # テトリミノ形状を回転した座標を返す
+        tmpCoords = self.getRotatedOffsets(direction)
+        # 
+        minX, maxX, minY, maxY = 0, 0, 0, 0
+        for x, y in tmpCoords:
+            if minX > x:
+                minX = x
+            if maxX < x:
+                maxX = x
+            if minY > y:
+                minY = y
+            if maxY < y:
+                maxY = y
+        return (minX, maxX, minY, maxY)
 BLOCK_CONTROLLER_TRAIN = Block_Controller()
