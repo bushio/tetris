@@ -80,6 +80,8 @@ class Block_Controller(object):
         self.latest_dir = self.result_warehouse+"/latest"
         predict_weight2 = None
 
+        self.get_next2_state_all = True
+
         ########
         ## Config Yaml 読み込み
         if yaml_file is None:
@@ -1592,8 +1594,8 @@ class Block_Controller(object):
             if self.double_dqn:
                 # 画面ボードデータをコピーして 指定座標にテトリミノを配置し落下させた画面ボードとy座標を返す
                 next_backboard, drop_y  = self.getBoard(curr_backboard, curr_shape_class, action[1], action[0], action[2])
-                get_next2_state_all = True
-                if get_next2_state_all:
+                
+                if self.get_next2_state_all:
                     next2_states = tuple()
                     for block_id in range(1, 8):
                         next_shape_class_dummy = ShapeDummy(block_id)
