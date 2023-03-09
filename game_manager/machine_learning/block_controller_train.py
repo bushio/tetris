@@ -299,6 +299,67 @@ class Block_Controller(object):
                 self.left_side_height_penalty = 0
             print("left_side_height_penalty:", self.left_side_height_penalty)
 
+        # Transformer の場合
+        elif cfg["model"]["name"]=="Transformer":
+            #=====load Deep Q Network=====
+            from machine_learning.model.Transformer import ViT
+            # DQN モデルインスタンス作成
+            self.model = ViT(dim_vec=8, dim_head = 16, mlp_dim = 16)
+            if self.weight2_available:
+                self.model2 = ViT(dim_vec=8, dim_head = 16, mlp_dim = 16)
+            
+            # 初期状態規定
+            self.initial_state = torch.FloatTensor([[[0 for i in range(10)] for j in range(22)]])
+            #各関数規定
+            self.get_next_func = self.get_next_states_v2
+            self.reward_func = self.step_v2
+            # 報酬関連規定
+            self.reward_weight = cfg["train"]["reward_weight"]
+            
+            if 'tetris_fill_reward' in cfg["train"]:
+                self.tetris_fill_reward = cfg["train"]["tetris_fill_reward"]
+            else:
+                self.tetris_fill_reward = 0
+            print("tetris_fill_reward:", self.tetris_fill_reward)
+
+            if 'tetris_fill_height' in cfg["train"]:
+                self.tetris_fill_height = cfg["train"]["tetris_fill_height"]
+            else:
+                self.tetris_fill_height = 0
+            print("tetris_fill_height:", self.tetris_fill_height)
+
+            if 'height_line_reward' in cfg["train"]:
+                self.height_line_reward = cfg["train"]["height_line_reward"]
+            else:
+                self.height_line_reward = 0
+            print("height_line_reward:", self.height_line_reward)
+    
+            if 'hole_top_limit_reward' in cfg["train"]:
+                self.hole_top_limit_reward = cfg["train"]["hole_top_limit_reward"]
+            else:
+                self.hole_top_limit_reward = 0
+            print("hole_top_limit_reward:", self.hole_top_limit_reward)
+    
+            # 穴の上の積み上げペナルティ
+            if 'hole_top_limit' in cfg["train"]:
+                self.hole_top_limit = cfg["train"]["hole_top_limit"]
+            else:
+                self.hole_top_limit = 1
+            print("hole_top_limit:", self.hole_top_limit)
+    
+            # 穴の上の積み上げペナルティ下限絶対高さ
+            if 'hole_top_limit_height' in cfg["train"]:
+                self.hole_top_limit_height = cfg["train"]["hole_top_limit_height"]
+            else:
+                self.hole_top_limit_height = -1
+            print("hole_top_limit_height:", self.hole_top_limit_height)
+
+            if 'left_side_height_penalty' in cfg["train"]:
+                self.left_side_height_penalty = cfg["train"]["left_side_height_penalty"]
+            else:
+                self.left_side_height_penalty = 0
+            print("left_side_height_penalty:", self.left_side_height_penalty)
+
 
         # 共通報酬関連規定
         if 'bumpiness_left_side_relax' in cfg["train"]:
